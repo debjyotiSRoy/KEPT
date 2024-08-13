@@ -222,7 +222,7 @@ def main():
         
     # Setup logging
     # if is_main_process(training_args.local_rank):
-    #     wandb.init(project="mimic_coder", entity="whaleloops")
+        # wandb.init(project="KEPT")
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -277,6 +277,8 @@ def main():
     train_dataset = MimicFullDataset(data_args.version, "train", data_args.max_seq_length, tokenizer, 30, 4) # TODO delete 30 and 8
     dev_dataset   = MimicFullDataset(data_args.version, "dev", data_args.max_seq_length, tokenizer, 30, 4)
     eval_dataset  = MimicFullDataset(data_args.version, "test", data_args.max_seq_length, tokenizer, 30, 4)
+
+    # import pdb; pdb.set_trace()
 
     num_labels = train_dataset.code_count 
     # load config, model

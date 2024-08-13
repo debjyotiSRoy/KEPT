@@ -164,7 +164,7 @@ class MimicFullDataset(Dataset):
 
         if version == 'mimic2':
             raise NotImplementedError
-        if version in ['mimic3', 'mimic3-50', 'mimic3-50l']:
+        if version in ['mimic3', 'mimic3-50', 'mimic3-50l', 'mimic3-few']:
             self.path = os.path.join(MIMIC_3_DIR, f"{version}_{mode}.json")
 
         if version in ['mimic3']:
@@ -173,6 +173,8 @@ class MimicFullDataset(Dataset):
             self.train_path = os.path.join(MIMIC_3_DIR, "train_50.csv")
         if version in ['mimic3-50l']:
             self.train_path = os.path.join(MIMIC_3_DIR, "train_50l.csv")
+        if version in ['mimic3-few']:
+            self.train_path = os.path.join(MIMIC_3_DIR, "train_few.csv")
 
         with open(self.path, "r") as f:
             self.df = ujson.load(f)
@@ -191,6 +193,8 @@ class MimicFullDataset(Dataset):
 
         self.len = len(self.df)
         self.truncate_length = truncate_length
+
+        # import pdb; pdb.set_trace()
         
         # prep prompt
         if version == "mimic3-50": #TODO: remove unique sorted ICD_50_RANK for mimic3-50
@@ -225,7 +229,8 @@ class MimicFullDataset(Dataset):
         descriptions = " " + " <mask>, ".join(desc_list) + " <mask>. "
         tmp = self.tokenizer.tokenize(descriptions)
         self.global_window = len(tmp) + 1
-        assert self.global_window < 501 # only for gpu memory efficiency
+        # import pdb; pdb.set_trace()
+        # assert self.global_window < 501 # only for gpu memory efficiency
 
         self.label_yes = self.tokenizer("yes")['input_ids'][1] # 10932
         self.label_no  = self.tokenizer("no")['input_ids'][1]  # 2362
@@ -254,6 +259,7 @@ class MimicFullDataset(Dataset):
         to_sav = []
         countb = 0
         for index in range(self.len):
+            # import pdb; pdb.set_trace()
             text = self.df[index]['TEXT']
             text = re.sub(r'\[\*\*[^\]]*\*\*\]', '', text)  # remove any mimic special token like [**2120-2-28**] or [**Hospital1 3278**]
             tmp = self.tokenizer.tokenize(descriptions + proc_text(text))
@@ -306,6 +312,7 @@ class MimicFullDataset(Dataset):
 
 
     def __getitem__(self, index):
+        # import pdb; pdb.set_trace()
         # proc label 
         label = str(self.df[index]['LABELS']).split(';')
         # proc input
