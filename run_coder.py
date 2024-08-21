@@ -25,7 +25,10 @@ from tqdm import tqdm
 import json
 import sys
 import numpy as np
-from evaluation import all_metrics
+from collections import Counter
+import pandas as pd
+from pathlib import Path
+from evaluation import all_metrics, macro_f1_score_per_label
 # from train_parser import generate_parser, print_metrics
 # from train_utils import generate_output_folder_name, generate_model
 # from find_threshold import find_threshold_micro
@@ -243,6 +246,7 @@ def main():
     logger.info(f"Training/evaluation parameters {training_args}")
 
     # Detecting last checkpoint.
+    # import pdb; pdb.set_trace()
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
@@ -323,7 +327,22 @@ def main():
         return result
 
     # Initialize our Trainer
-    trainer = Trainer(
+    # from transformers import Trainer
+    # import os
+
+    class CustomTrainer(Trainer):
+        def _save(self, output_dir: str):
+            os.makedirs(output_dir, exist_ok=True)
+            # Save model checkpoint
+            if self.is_world_process_zero():
+                self.model.save_pretrained(output_dir, safe_serialization=False)
+
+                # Save configuration files
+                if self.tokenizer is not None:
+                    self.tokenizer.save_pretrained(output_dir)
+                # if model_args is not None:
+                torch.save(self.args, os.path.join(output_dir, "training_args.bin")) 
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -376,6 +395,35 @@ def main():
 
             metrics = all_metrics(y, preds, k=[5, 8, 15, 50], threshold=threshold)
             printresult(metrics)
+            
+            ###############
+            train_file = train_dataset.train_path
+            dev_file = train_file.replace('train', 'dev')
+            label_list = [lbl for lbl in train_dataset.c2ind.keys()]
+            label_to_id = train_dataset.c2ind
+
+            def compute_lbs_frqs(trainfile, devfile, label_list, label_delim=';'):
+                df_train = pd.read_csv(trainfile)
+                df_dev = pd.read_csv(devfile)
+                df = pd.concat((df_train, df_dev))
+                # Compute label frequencies
+                lbl_freqs = Counter()
+                for _,row in df.iterrows():
+                    if pd.notna(row.LABELS):
+                        lbl_freqs.update(row.LABELS.split(label_delim if label_delim is not None else ',' ))
+                #hack
+                # lbl_freqs['32'] = lbl_freqs['32.']; del lbl_freqs['32.']
+                # try:
+                if set(lbl_freqs.keys()) != set(label_list):
+                    print(f"There are some labels in the test set that are not in training set")
+                # except AssertionError as e:
+                return lbl_freqs
+
+            lbs_frqs = compute_lbs_frqs(train_file, dev_file, label_list)
+            yhat = preds>threshold
+            plot_f1_macro_per_label(yhat, y, label_to_id=label_to_id, lbs_frqs=lbs_frqs, plot_file=Path(training_args.output_dir)/'macro_f1_plot.png')
+            ##############
+            
             max_eval_samples = (
                 data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
             )
@@ -449,7 +497,35 @@ def main():
 
         logger.info("*** Done for Predict ***")
 
+import matplotlib.pyplot as plt
+def plot_f1_macro_per_label(yhat, y, label_to_id=None, lbs_frqs=None, plot_file=None):
+    # import pdb; pdb.set_trace()
+    # Compute macro F1 score for each label class
+    macro_f1_lbs = macro_f1_score_per_label(yhat, y)
+    label_to_macro = {lbl: macro_f1_lbs[id] for lbl,id in label_to_id.items()}
+    # Sort labels based on frequencies
+    sorted_labels = sorted(lbs_frqs.keys(), key=lambda x: lbs_frqs[x])
+    # Extract macro F1 scores corresponding to sorted labels
+    macro_f1_scores_of_sorted_labels = [label_to_macro[label] for label in sorted_labels]
 
+    plt.figure(figsize=(10, 6))
+    # plt.bar(sorted_labels, macro_f1_scores, color='skyblue')
+    plt.plot(range(len(sorted_labels)), macro_f1_scores_of_sorted_labels, color='skyblue')
+    plt.xlabel('Label Ids (Sorted by Frequencies)')
+    plt.ylabel('Macro F1 Score')
+    plt.ylim([-0.2, max(macro_f1_scores_of_sorted_labels) + 1])
+    plt.title(f'Macro F1 Scores for Labels Sorted by Frequencies: {macro_f1_lbs.mean().item()}')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    # import pdb; pdb.set_trace()
+
+    # Save the plot
+    plt.savefig(plot_file)
+    # plt.show()
+
+    with open(plot_file.name.replace('png', 'txt'), 'w') as file:
+        for lbl in sorted_labels:
+            file.write(f"{str(lbl)}\t{lbs_frqs[lbl]}\t{label_to_macro[lbl]}\n")
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)

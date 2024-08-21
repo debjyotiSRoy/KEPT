@@ -84,6 +84,32 @@ def macro_f1(yhat, y):
         f1 = 2*(prec*rec)/(prec+rec)
     return f1
 
+def macro_f1_score_per_label(yhat, y, epsilon=1e-7):
+    """
+    Compute the macro F1 score given predicted and true labels.
+    
+    Args:
+    - yhat (torch.Tensor): Predicted labels (binary tensor).
+    - y (torch.Tensor): True labels (binary tensor).
+    - epsilon (float): Smoothing term to avoid division by zero.
+    
+    Returns:
+    - macro_f1 (float): Macro F1 score.
+    """
+    # Compute true positives, false positives, and false negatives
+    tp = (yhat * y).sum(axis=0)
+    fp = ((1 - y) * yhat).sum(axis=0)
+    fn = (y * (1 - yhat)).sum(axis=0)
+
+    # Compute precision and recall
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+
+    # Compute F1 score for each class
+    f1 = 2 * precision * recall / (precision + recall + epsilon)
+
+    return f1
+
 ###################
 # INSTANCE-AVERAGED
 ###################
